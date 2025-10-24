@@ -9,7 +9,7 @@ import torch.nn.functional as F
 
 from dataclasses import dataclass
 from vggt.utils.pose_enc import extri_intri_to_pose_encoding
-from train_utils.general import check_and_fix_inf_nan
+from .train_utils.general import check_and_fix_inf_nan
 from math import ceil, floor
 
 
@@ -524,7 +524,7 @@ def point_map_to_normal(point_map, mask, eps=1e-6):
         normals: (4, B, H, W, 3) normal vectors for each of the 4 cross-product directions
         valids: (4, B, H, W) corresponding valid masks
     """
-    with torch.cuda.amp.autocast(enabled=False):
+    with torch.autocast("cuda", enabled=False):
         # Pad inputs to avoid boundary issues
         padded_mask = F.pad(mask, (1, 1, 1, 1), mode='constant', value=0)
         pts = F.pad(point_map.permute(0, 3, 1, 2), (1,1,1,1), mode='constant', value=0).permute(0, 2, 3, 1)

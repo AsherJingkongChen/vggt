@@ -213,7 +213,7 @@ class DPTHead(nn.Module):
 
             x = self.norm(x)
 
-            x = x.permute(0, 2, 1).reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
+            x = x.permute(0, 2, 1).contiguous().reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
 
             x = self.projects[dpt_idx](x)
             if self.pos_embed:
