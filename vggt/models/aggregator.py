@@ -192,16 +192,13 @@ class Aggregator(nn.Module):
                 The list of outputs from the attention blocks,
                 and the patch_start_idx indicating where patch tokens begin.
         """
-        B, S, C_in, H, W = images.shape
-
-        if C_in != 3:
-            raise ValueError(f"Expected 3 input channels, got {C_in}")
+        B, S, _, H, W = images.shape
 
         # Normalize images and reshape for patch embed
         images = (images - self._resnet_mean) / self._resnet_std
 
-        # Reshape to [B*S, C, H, W] for patch embedding
-        images = images.view(B * S, C_in, H, W)
+        # Reshape to [B*S, 3, H, W] for patch embedding
+        images = images.view(B * S, 3, H, W)
         patch_tokens = self.patch_embed(images)
 
         if isinstance(patch_tokens, dict):
