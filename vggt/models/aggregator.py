@@ -217,13 +217,17 @@ class Aggregator(nn.Module):
         tokens = torch.cat([camera_token, register_token, patch_tokens], dim=1)
 
         pos = None
+        max_pos = None
         if self.rope is not None:
-            pos = self.position_getter(B * S, H // self.patch_size, W // self.patch_size, device=images.device)
+            H_p, W_p = H // self.patch_size, W // self.patch_size
+            pos = self.position_getter(B * S, H_p, W_p, device=images.device)
+            max_pos = max(H_p, W_p)
 
         if self.patch_start_idx > 0:
             # do not use position embedding for special tokens (camera and register tokens)
             # so set pos to 0 for the special tokens
             pos = pos + 1
+            max_pos = max_pos + 1
             pos_special = torch.zeros(B * S, self.patch_start_idx, 2).to(images.device).to(pos.dtype)
             pos = torch.cat([pos_special, pos], dim=1)
 
@@ -238,11 +242,11 @@ class Aggregator(nn.Module):
             for attn_type in self.aa_order:
                 if attn_type == "frame":
                     tokens, frame_idx, frame_intermediates = self._process_frame_attention(
-                        tokens, B, S, P, C, frame_idx, pos=pos
+                        tokens, B, S, P, C, frame_idx, pos=pos, max_pos=max_pos
                     )
                 elif attn_type == "global":
                     tokens, global_idx, global_intermediates = self._process_global_attention(
-                        tokens, B, S, P, C, global_idx, pos=pos
+                        tokens, B, S, P, C, global_idx, pos=pos, max_pos=max_pos
                     )
                 else:
                     raise ValueError(f"Unknown attention type: {attn_type}")
@@ -257,7 +261,7 @@ class Aggregator(nn.Module):
         del global_intermediates
         return output_list, self.patch_start_idx
 
-    def _process_frame_attention(self, tokens, B, S, P, C, frame_idx, pos=None):
+    def _process_frame_attention(self, tokens, B, S, P, C, frame_idx, pos=None, max_pos: int = None):
         """
         Process frame attention blocks. We keep tokens in shape (B*S, P, C).
         """
@@ -273,15 +277,15 @@ class Aggregator(nn.Module):
         # by default, self.aa_block_size=1, which processes one block at a time
         for _ in range(self.aa_block_size):
             if self.training:
-                tokens = checkpoint(self.frame_blocks[frame_idx], tokens, pos, use_reentrant=self.use_reentrant)
+                tokens = checkpoint(self.frame_blocks[frame_idx], tokens, pos, max_pos, use_reentrant=self.use_reentrant)
             else:
-                tokens = self.frame_blocks[frame_idx](tokens, pos=pos)
+                tokens = self.frame_blocks[frame_idx](tokens, pos=pos, max_pos=max_pos)
             frame_idx += 1
             intermediates.append(tokens.view(B, S, P, C))
 
         return tokens, frame_idx, intermediates
 
-    def _process_global_attention(self, tokens, B, S, P, C, global_idx, pos=None):
+    def _process_global_attention(self, tokens, B, S, P, C, global_idx, pos=None, max_pos: int = None):
         """
         Process global attention blocks. We keep tokens in shape (B, S*P, C).
         """
@@ -296,9 +300,9 @@ class Aggregator(nn.Module):
         # by default, self.aa_block_size=1, which processes one block at a time
         for _ in range(self.aa_block_size):
             if self.training:
-                tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, use_reentrant=self.use_reentrant)
+                tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, max_pos, use_reentrant=self.use_reentrant)
             else:
-                tokens = self.global_blocks[global_idx](tokens, pos=pos)
+                tokens = self.global_blocks[global_idx](tokens, pos=pos, max_pos=max_pos)
             global_idx += 1
             intermediates.append(tokens.view(B, S, P, C))
 
