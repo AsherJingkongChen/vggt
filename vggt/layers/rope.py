@@ -151,7 +151,7 @@ class RotaryPositionEmbedding2D(nn.Module):
         # Apply rotation
         return (tokens * cos) + (self._rotate_features(tokens) * sin)
 
-    def forward(self, tokens: torch.Tensor, positions: torch.Tensor) -> torch.Tensor:
+    def forward(self, tokens: torch.Tensor, positions: torch.Tensor, max_pos: int) -> torch.Tensor:
         """Applies 2D rotary position embeddings to input tokens.
 
         Args:
@@ -159,6 +159,7 @@ class RotaryPositionEmbedding2D(nn.Module):
                    The feature dimension (dim) must be divisible by 4.
             positions: Position tensor of shape (batch_size, n_tokens, 2) containing
                       the y and x coordinates for each token.
+            max_pos: Maximum position value + 1.
 
         Returns:
             Tensor of same shape as input with applied 2D rotary position embeddings.
@@ -174,9 +175,7 @@ class RotaryPositionEmbedding2D(nn.Module):
         feature_dim = tokens.size(-1) // 2
 
         # Get frequency components
-        # NOTE: max_position = int(positions.max()) + 1
-        max_position = positions.shape[-2]
-        cos_comp, sin_comp = self._compute_frequency_components(feature_dim, max_position, tokens.device, tokens.dtype)
+        cos_comp, sin_comp = self._compute_frequency_components(feature_dim, max_pos, tokens.device, tokens.dtype)
 
         # Split features for vertical and horizontal processing
         vertical_features, horizontal_features = tokens.chunk(2, dim=-1)
