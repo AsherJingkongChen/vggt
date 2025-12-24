@@ -16,6 +16,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .head_act import activate_head
 from .utils import create_uv_grid, position_grid_to_embed
+from torch.utils.checkpoint import checkpoint
 
 
 class DPTHead(nn.Module):
@@ -224,7 +225,11 @@ class DPTHead(nn.Module):
             dpt_idx += 1
 
         # Fuse features from multiple layers.
-        out = self.scratch_forward(out)
+        if self.training:
+            out = checkpoint(self.scratch_forward, *out, use_reentrant=False)
+        else:
+            out = self.scratch_forward(*out)
+
         # Interpolate fused output to match target image resolution.
         out = custom_interpolate(
             out,
@@ -258,12 +263,12 @@ class DPTHead(nn.Module):
         pos_embed = pos_embed.permute(2, 0, 1)[None].expand(x.shape[0], -1, -1, -1)
         return x + pos_embed
 
-    def scratch_forward(self, features: List[torch.Tensor]) -> torch.Tensor:
+    def scratch_forward(self, *features: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the fusion blocks.
 
         Args:
-            features (List[Tensor]): List of feature maps from different layers.
+            *features (torch.Tensor): List of feature maps from different layers.
 
         Returns:
             Tensor: Fused feature map.
