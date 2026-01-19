@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from torch.utils.checkpoint import checkpoint
 from vggt.layers import Mlp
 from vggt.layers.block import Block
 from vggt.heads.head_act import activate_pose
@@ -123,7 +124,10 @@ class CameraHead(nn.Module):
             pose_tokens_modulated = gate_msa * modulate(self.adaln_norm(pose_tokens), shift_msa, scale_msa)
             pose_tokens_modulated = pose_tokens_modulated + pose_tokens
 
-            pose_tokens_modulated = self.trunk(pose_tokens_modulated)
+            if self.training:
+                pose_tokens_modulated = checkpoint(self.trunk, pose_tokens_modulated, use_reentrant=False)
+            else:
+                pose_tokens_modulated = self.trunk(pose_tokens_modulated)
             # Compute the delta update for the pose encoding.
             pred_pose_enc_delta = self.pose_branch(self.trunk_norm(pose_tokens_modulated))
 
