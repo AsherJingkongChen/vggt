@@ -128,8 +128,13 @@ class CameraHead(nn.Module):
                 pose_tokens_modulated = checkpoint(self.trunk, pose_tokens_modulated, use_reentrant=False)
             else:
                 pose_tokens_modulated = self.trunk(pose_tokens_modulated)
+            pose_tokens_modulated = self.trunk_norm(pose_tokens_modulated)
+
             # Compute the delta update for the pose encoding.
-            pred_pose_enc_delta = self.pose_branch(self.trunk_norm(pose_tokens_modulated))
+            if self.training:
+                pred_pose_enc_delta = checkpoint(self.pose_branch, pose_tokens_modulated, use_reentrant=False)
+            else:
+                pred_pose_enc_delta = self.pose_branch(pose_tokens_modulated)
 
             if pred_pose_enc is None:
                 pred_pose_enc = pred_pose_enc_delta
