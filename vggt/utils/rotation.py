@@ -24,8 +24,9 @@ def quat_to_mat(quaternions: torch.Tensor) -> torch.Tensor:
         Rotation matrices as tensor of shape (..., 3, 3).
     """
     i, j, k, r = torch.unbind(quaternions, -1)
+    eps = torch.finfo(i.dtype).eps
     # pyre-fixme[58]: `/` is not supported for operand types `float` and `Tensor`.
-    two_s = 2.0 / (quaternions * quaternions).sum(-1)
+    two_s = 2.0 / (quaternions * quaternions).sum(-1).clamp(min=eps)
 
     o = torch.stack(
         (
