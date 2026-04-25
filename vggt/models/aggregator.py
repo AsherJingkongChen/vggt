@@ -21,6 +21,8 @@ logger = logging.getLogger(__name__)
 _RESNET_MEAN = [0.485, 0.456, 0.406]
 _RESNET_STD = [0.229, 0.224, 0.225]
 
+_SGA_FACTOR_TO_STRIDES = {1: (1, 1), 2: (1, 2), 4: (2, 2), 6: (2, 3), 9: (3, 3)}
+
 
 class Aggregator(nn.Module):
     """
@@ -68,6 +70,9 @@ class Aggregator(nn.Module):
         qk_norm=True,
         rope_freq=100,
         init_values=0.01,
+        t_early=9,
+        sga_factor=4,
+        sga_first_frame_keep=True,
     ):
         super().__init__()
 
@@ -115,6 +120,7 @@ class Aggregator(nn.Module):
         self.aa_order = aa_order
         self.patch_size = patch_size
         self.aa_block_size = aa_block_size
+        self.t_early = t_early
 
         # Validate that depth is divisible by aa_block_size
         if self.depth % self.aa_block_size != 0:
@@ -139,6 +145,11 @@ class Aggregator(nn.Module):
             self.register_buffer(name, torch.FloatTensor(value).view(1, 1, 3, 1, 1), persistent=False)
 
         self.use_reentrant = False # hardcoded to False
+
+        # SGA state
+        self.sga_factor = sga_factor
+        self.sga_first_frame_keep = sga_first_frame_keep
+        self.sga_indices_cache = {}
 
     def __build_patch_embed__(
         self,
@@ -243,7 +254,7 @@ class Aggregator(nn.Module):
                     )
                 elif attn_type == "global":
                     tokens, global_idx, global_intermediates = self._process_global_attention(
-                        tokens, B, S, P, C, global_idx, pos=pos, max_pos=max_pos
+                        tokens, B, S, P, C, global_idx, H, W, pos=pos, max_pos=max_pos
                     )
                 else:
                     raise ValueError(f"Unknown attention type: {attn_type}")
@@ -282,28 +293,61 @@ class Aggregator(nn.Module):
 
         return tokens, frame_idx, intermediates
 
-    def _process_global_attention(self, tokens, B, S, P, C, global_idx, pos=None, max_pos: int = None):
+    def _process_global_attention(self, tokens, B, S, P, C, global_idx, H, W, pos=None, max_pos: int = None):
         """
         Process global attention blocks. We keep tokens in shape (B, S*P, C).
+        G2F-converted blocks (idx < self.t_early) use (B*S, P, C) frame layout instead.
         """
-        if tokens.shape != (B, S * P, C):
-            tokens = tokens.view(B, S, P, C).view(B, S * P, C)
-
-        if pos is not None and pos.shape != (B, S * P, 2):
-            pos = pos.view(B, S, P, 2).view(B, S * P, 2)
-
         intermediates = []
 
         # by default, self.aa_block_size=1, which processes one block at a time
         for _ in range(self.aa_block_size):
+            # G2F: early global blocks switch to frame attention layout
+            is_g2f = global_idx < self.t_early
+            tgt_shape = (B * S, P, C) if is_g2f else (B, S * P, C)
+            tgt_pos_shape = (B * S, P, 2) if is_g2f else (B, S * P, 2)
+            if tokens.shape != tgt_shape:
+                tokens = tokens.view(B, S, P, C).view(tgt_shape)
+            if pos is not None and pos.shape != tgt_pos_shape:
+                pos = pos.view(B, S, P, 2).view(tgt_pos_shape)
+
+            # SGA: subsample K/V for non-G2F global blocks
+            keep_indices = None
+            if not is_g2f and self.sga_factor > 1:
+                keep_indices = self.build_sga_keep_indices(S, H, W, tokens.device)
+
             if self.training:
-                tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, max_pos, use_reentrant=self.use_reentrant)
+                tokens = checkpoint(self.global_blocks[global_idx], tokens, pos, max_pos, keep_indices, use_reentrant=self.use_reentrant)
             else:
-                tokens = self.global_blocks[global_idx](tokens, pos=pos, max_pos=max_pos)
+                tokens = self.global_blocks[global_idx](tokens, pos=pos, max_pos=max_pos, keep_indices=keep_indices)
             global_idx += 1
             intermediates.append(tokens.view(B, S, P, C))
 
         return tokens, global_idx, intermediates
+
+    def build_sga_keep_indices(self, num_frames, H, W, device):
+        cache_key = (num_frames, H, W, device)
+        if cache_key in self.sga_indices_cache:
+            return self.sga_indices_cache[cache_key]
+        n_h = H // self.patch_size
+        n_w = W // self.patch_size
+        s_h, s_w = _SGA_FACTOR_TO_STRIDES[self.sga_factor]
+        L = self.patch_start_idx + n_h * n_w
+        special = torch.arange(self.patch_start_idx, device=device)
+        patch_sub = torch.tensor(
+            [i * n_w + j for i in range(0, n_h, s_h) for j in range(0, n_w, s_w)],
+            dtype=torch.long,
+            device=device,
+        ) + self.patch_start_idx
+        patch_full = torch.arange(self.patch_start_idx, L, device=device)
+        chunks = []
+        for n in range(num_frames):
+            chunks.append(special + n * L)
+            keep = patch_full if (n == 0 and self.sga_first_frame_keep) else patch_sub
+            chunks.append(keep + n * L)
+        indices = torch.cat(chunks)
+        self.sga_indices_cache[cache_key] = indices
+        return indices
 
 
 def slice_expand_and_flatten(token_tensor, B, S):

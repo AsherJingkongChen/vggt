@@ -47,7 +47,7 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
         self.rope = rope
 
-    def forward(self, x: Tensor, pos=None, max_pos: int = None) -> Tensor:
+    def forward(self, x: Tensor, pos=None, max_pos: int = None, keep_indices: Tensor = None) -> Tensor:
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, self.head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv.unbind(0)
@@ -56,6 +56,11 @@ class Attention(nn.Module):
         if self.rope is not None:
             q = self.rope(q, pos, max_pos)
             k = self.rope(k, pos, max_pos)
+
+        # SGA: subsample K/V along sequence dim
+        if keep_indices is not None:
+            k = k.index_select(2, keep_indices)
+            v = v.index_select(2, keep_indices)
 
         if self.fused_attn:
             x = F.scaled_dot_product_attention(q, k, v, dropout_p=self.attn_drop.p if self.training else 0.0)
@@ -73,7 +78,7 @@ class Attention(nn.Module):
 
 
 class MemEffAttention(Attention):
-    def forward(self, x: Tensor, attn_bias=None, pos=None, max_pos=None) -> Tensor:
+    def forward(self, x: Tensor, attn_bias=None, pos=None, max_pos=None, keep_indices: Tensor = None) -> Tensor:
         assert pos is None and max_pos is None
         if not XFORMERS_AVAILABLE:
             if attn_bias is not None:

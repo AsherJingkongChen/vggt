@@ -74,9 +74,9 @@ class Block(nn.Module):
 
         self.sample_drop_ratio = drop_path
 
-    def forward(self, x: Tensor, pos=None, max_pos: int = None) -> Tensor:
+    def forward(self, x: Tensor, pos=None, max_pos: int = None, keep_indices: Tensor = None) -> Tensor:
         def attn_residual_func(x: Tensor, pos=None, max_pos: int = None) -> Tensor:
-            return self.ls1(self.attn(self.norm1(x), pos=pos, max_pos=max_pos))
+            return self.ls1(self.attn(self.norm1(x), pos=pos, max_pos=max_pos, keep_indices=keep_indices))
 
         def ffn_residual_func(x: Tensor) -> Tensor:
             return self.ls2(self.mlp(self.norm2(x)))
