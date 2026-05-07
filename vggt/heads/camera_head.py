@@ -130,14 +130,13 @@ class CameraHead(nn.Module):
                 pose_tokens_modulated = self.trunk(pose_tokens_modulated)
             pose_tokens_modulated = self.trunk_norm(pose_tokens_modulated)
 
-            # Compute the delta update for the pose encoding.
-            if self.training:
-                pred_pose_enc_delta = checkpoint(self.pose_branch, pose_tokens_modulated, use_reentrant=False)
-            else:
-                pred_pose_enc_delta = self.pose_branch(pose_tokens_modulated)
-
-            with torch.autocast(pred_pose_enc_delta.device.type, enabled=False):
-                pred_pose_enc_delta = pred_pose_enc_delta.float()
+            with torch.autocast(pose_tokens_modulated.device.type, enabled=False):
+                pose_tokens_modulated = pose_tokens_modulated.float()
+                # Compute the delta update for the pose encoding.
+                if self.training:
+                    pred_pose_enc_delta = checkpoint(self.pose_branch, pose_tokens_modulated, use_reentrant=False)
+                else:
+                    pred_pose_enc_delta = self.pose_branch(pose_tokens_modulated)
                 pred_pose_enc = pred_pose_enc_delta if pred_pose_enc is None else pred_pose_enc_delta + pred_pose_enc
                 # Apply final activation functions for translation, quaternion, and field-of-view.
                 activated_pose = activate_pose(
