@@ -136,15 +136,14 @@ class CameraHead(nn.Module):
             else:
                 pred_pose_enc_delta = self.pose_branch(pose_tokens_modulated)
 
-            if pred_pose_enc is None:
-                pred_pose_enc = pred_pose_enc_delta
-            else:
-                pred_pose_enc = pred_pose_enc + pred_pose_enc_delta
+            with torch.autocast(pred_pose_enc_delta.device.type, enabled=False):
+                pred_pose_enc_delta = pred_pose_enc_delta.float()
+                pred_pose_enc = pred_pose_enc_delta if pred_pose_enc is None else pred_pose_enc_delta + pred_pose_enc
+                # Apply final activation functions for translation, quaternion, and field-of-view.
+                activated_pose = activate_pose(
+                    pred_pose_enc, trans_act=self.trans_act, quat_act=self.quat_act, fl_act=self.fl_act
+                )
 
-            # Apply final activation functions for translation, quaternion, and field-of-view.
-            activated_pose = activate_pose(
-                pred_pose_enc, trans_act=self.trans_act, quat_act=self.quat_act, fl_act=self.fl_act
-            )
             pred_pose_enc_list.append(activated_pose)
 
         return pred_pose_enc_list
