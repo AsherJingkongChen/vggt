@@ -244,9 +244,9 @@ class DPTHead(nn.Module):
         if self.feature_only:
             return out.view(B, S, *out.shape[1:])
 
-        out = self.scratch.output_conv2(out)
         with torch.autocast(out.device.type, enabled=False):
             out = out.float()
+            out = self.scratch.output_conv2(out)
             preds, conf = activate_head(out, activation=self.activation, conf_activation=self.conf_activation)
 
         preds = preds.view(B, S, *preds.shape[1:])
