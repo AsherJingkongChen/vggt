@@ -241,11 +241,11 @@ class DPTHead(nn.Module):
         if self.pos_embed:
             out = self._apply_pos_embed(out, W, H)
 
+        out = out.float()
         if self.feature_only:
             return out.view(B, S, *out.shape[1:])
 
         with torch.autocast(out.device.type, enabled=False):
-            out = out.float()
             out = self.scratch.output_conv2(out)
             preds, conf = activate_head(out, activation=self.activation, conf_activation=self.conf_activation)
 
