@@ -116,7 +116,8 @@ class DPTHead(nn.Module):
     def forward(
         self,
         aggregated_tokens_list: List[torch.Tensor],
-        images: torch.Tensor,
+        H: int,
+        W: int,
         patch_start_idx: int,
         frames_chunk_size: int = 8,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
@@ -124,7 +125,8 @@ class DPTHead(nn.Module):
         Forward pass through the DPT head, supports processing by chunking frames.
         Args:
             aggregated_tokens_list (List[Tensor]): List of token tensors from different transformer layers.
-            images (Tensor): Input images with shape [B, S, 3, H, W], in range [0, 1].
+            H (int): Height of the input images.
+            W (int): Width of the input images.
             patch_start_idx (int): Starting index for patch tokens in the token sequence.
                 Used to separate patch tokens from other tokens (e.g., camera or register tokens).
             frames_chunk_size (int, optional): Number of frames to process in each chunk.
@@ -135,11 +137,11 @@ class DPTHead(nn.Module):
                 - If feature_only=True: Feature maps with shape [B, S, C, H, W]
                 - Otherwise: Tuple of (predictions, confidence) both with shape [B, S, 1, H, W]
         """
-        B, S, _, H, W = images.shape
+        S = aggregated_tokens_list[-1].shape[-3]
 
         # If frames_chunk_size is not specified or greater than S, process all frames at once
         if frames_chunk_size is None or frames_chunk_size >= S:
-            return self._forward_impl(aggregated_tokens_list, images, patch_start_idx)
+            return self._forward_impl(aggregated_tokens_list, H, W, patch_start_idx)
 
         # Otherwise, process frames in chunks to manage memory usage
         assert frames_chunk_size > 0
@@ -154,12 +156,12 @@ class DPTHead(nn.Module):
             # Process batch of frames
             if self.feature_only:
                 chunk_output = self._forward_impl(
-                    aggregated_tokens_list, images, patch_start_idx, frames_start_idx, frames_end_idx
+                    aggregated_tokens_list, H, W, patch_start_idx, frames_start_idx, frames_end_idx
                 )
                 all_preds.append(chunk_output)
             else:
                 chunk_preds, chunk_conf = self._forward_impl(
-                    aggregated_tokens_list, images, patch_start_idx, frames_start_idx, frames_end_idx
+                    aggregated_tokens_list, H, W, patch_start_idx, frames_start_idx, frames_end_idx
                 )
                 all_preds.append(chunk_preds)
                 all_conf.append(chunk_conf)
@@ -173,7 +175,8 @@ class DPTHead(nn.Module):
     def _forward_impl(
         self,
         aggregated_tokens_list: List[torch.Tensor],
-        images: torch.Tensor,
+        H: int,
+        W: int,
         patch_start_idx: int,
         frames_start_idx: int = None,
         frames_end_idx: int = None,
@@ -185,7 +188,8 @@ class DPTHead(nn.Module):
 
         Args:
             aggregated_tokens_list (List[Tensor]): List of token tensors from different transformer layers.
-            images (Tensor): Input images with shape [B, S, 3, H, W].
+            H (int): Height of the input images.
+            W (int): Width of the input images.
             patch_start_idx (int): Starting index for patch tokens.
             frames_start_idx (int, optional): Starting index for frames to process.
             frames_end_idx (int, optional): Ending index for frames to process.
@@ -193,10 +197,7 @@ class DPTHead(nn.Module):
         Returns:
             Tensor or Tuple[Tensor, Tensor]: Feature maps or (predictions, confidence).
         """
-        if frames_start_idx is not None and frames_end_idx is not None:
-            images = images[:, frames_start_idx:frames_end_idx].contiguous()
-
-        B, S, _, H, W = images.shape
+        B, S = aggregated_tokens_list[-1].shape[:-2]
 
         patch_h, patch_w = H // self.patch_size, W // self.patch_size
 
