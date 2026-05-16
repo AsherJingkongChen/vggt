@@ -41,9 +41,9 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             dict: A dictionary containing the following predictions:
                 - pose_enc (torch.Tensor): Camera pose encoding with shape [B, S, 9] (from the last iteration)
                 - depth (torch.Tensor): Predicted depth maps with shape [B, S, H, W, 1]
-                - depth_conf (torch.Tensor): Confidence scores for depth predictions with shape [B, S, H, W]
+                - depth_conf (torch.Tensor): Confidence scores for depth predictions with shape [B, S, H, W, 1]
                 - world_points (torch.Tensor): 3D world coordinates for each pixel with shape [B, S, H, W, 3]
-                - world_points_conf (torch.Tensor): Confidence scores for world points with shape [B, S, H, W]
+                - world_points_conf (torch.Tensor): Confidence scores for world points with shape [B, S, H, W, 1]
                 - images (torch.Tensor): Original input images, preserved for visualization
 
                 If query_points is provided, also includes:
