@@ -198,6 +198,8 @@ class DPTHead(nn.Module):
             Tensor or Tuple[Tensor, Tensor]: Feature maps or (predictions, confidence).
         """
         B, S = aggregated_tokens_list[-1].shape[:-2]
+        if frames_start_idx is not None and frames_end_idx is not None:
+            S = frames_end_idx - frames_start_idx
 
         patch_h, patch_w = H // self.patch_size, W // self.patch_size
 
