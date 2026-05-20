@@ -213,25 +213,12 @@ class DPTHead(nn.Module):
             if frames_start_idx is not None and frames_end_idx is not None:
                 x = x[:, frames_start_idx:frames_end_idx]
 
-            x = x.reshape(B * S, -1, x.shape[-1])
-
-            x = self.norm(x)
-
-            x = x.permute(0, 2, 1).contiguous().reshape((x.shape[0], x.shape[-1], patch_h, patch_w))
-
-            x = self.projects[dpt_idx](x)
-            if self.pos_embed:
-                x = self._apply_pos_embed(x, W, H)
-            x = self.resize_layers[dpt_idx](x)
-
+            x = checkpoint(self._run_multi_scale_layer, x, dpt_idx, H, W, use_reentrant=False)
             out.append(x)
             dpt_idx += 1
 
         # Fuse features from multiple layers.
-        if self.training:
-            out = checkpoint(self.scratch_forward, *out, use_reentrant=False)
-        else:
-            out = self.scratch_forward(*out)
+        out = checkpoint(self.scratch_forward, *out, use_reentrant=False)
 
         # Interpolate fused output to match target image resolution.
         out = custom_interpolate(
@@ -255,6 +242,19 @@ class DPTHead(nn.Module):
         preds = preds.view(B, S, *preds.shape[1:])
         conf = conf.view(B, S, *conf.shape[1:])
         return preds, conf
+
+
+    def _run_multi_scale_layer(self, x: torch.Tensor, dpt_idx: int, height: int, width: int) -> torch.Tensor:
+        patch_h, patch_w = height // self.patch_size, width // self.patch_size
+
+        x = x.flatten(0, 1)
+        x = self.norm(x)
+        x = x.permute(0, 2, 1).contiguous().unflatten(2, (patch_h, patch_w))
+        x = self.projects[dpt_idx](x)
+        if self.pos_embed:
+            x = self._apply_pos_embed(x, width, height)
+        x = self.resize_layers[dpt_idx](x)
+        return x
 
     def _apply_pos_embed(self, x: torch.Tensor, W: int, H: int, ratio: float = 0.1) -> torch.Tensor:
         """

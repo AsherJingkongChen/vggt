@@ -65,6 +65,7 @@ class Aggregator(nn.Module):
         patch_embed="dinov2_vitl14_reg",
         aa_order=["frame", "global"],
         aa_block_size=1,
+        intermediate_layer_idx=[4, 11, 17, 23],
         qk_norm=True,
         rope_freq=100,
         init_values=0.01,
@@ -115,6 +116,7 @@ class Aggregator(nn.Module):
         self.aa_order = aa_order
         self.patch_size = patch_size
         self.aa_block_size = aa_block_size
+        self.intermediate_layer_idx = intermediate_layer_idx
 
         # Validate that depth is divisible by aa_block_size
         if self.depth % self.aa_block_size != 0:
@@ -235,7 +237,7 @@ class Aggregator(nn.Module):
         global_idx = 0
         output_list = []
 
-        for _ in range(self.aa_block_num):
+        for k in range(self.aa_block_num):
             for attn_type in self.aa_order:
                 if attn_type == "frame":
                     tokens, frame_idx, frame_intermediates = self._process_frame_attention(
@@ -249,8 +251,11 @@ class Aggregator(nn.Module):
                     raise ValueError(f"Unknown attention type: {attn_type}")
 
             for i in range(len(frame_intermediates)):
-                # concat frame and global intermediates, [B x S x P x 2C]
-                concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
+                if k in self.intermediate_layer_idx:
+                    # concat frame and global intermediates, [B x S x P x 2C]
+                    concat_inter = torch.cat([frame_intermediates[i], global_intermediates[i]], dim=-1)
+                else:
+                    concat_inter = None
                 output_list.append(concat_inter)
 
         del concat_inter
