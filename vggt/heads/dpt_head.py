@@ -219,23 +219,24 @@ class DPTHead(nn.Module):
 
         # Fuse features from multiple layers.
         out = checkpoint(self.scratch_forward, *out, use_reentrant=False)
-
-        # Interpolate fused output to match target image resolution.
-        out = custom_interpolate(
-            out,
-            (int(patch_h * self.patch_size / self.down_ratio), int(patch_w * self.patch_size / self.down_ratio)),
-            mode="bilinear",
-            align_corners=True,
-        )
-
-        if self.pos_embed:
-            out = self._apply_pos_embed(out, W, H)
-
         out = out.float()
-        if self.feature_only:
-            return out.view(B, S, *out.shape[1:])
 
         with torch.autocast(out.device.type, enabled=False):
+            # Interpolate fused output to match target image resolution.
+            out = custom_interpolate(
+                out,
+                (
+                    int(patch_h * self.patch_size / self.down_ratio),
+                    int(patch_w * self.patch_size / self.down_ratio),
+                ),
+                mode="bilinear",
+                align_corners=True,
+            )
+            if self.pos_embed:
+                out = self._apply_pos_embed(out, W, H)
+            if self.feature_only:
+                return out.view(B, S, *out.shape[1:])
+
             out = self.scratch.output_conv2(out)
             preds, conf = activate_head(out, activation=self.activation, conf_activation=self.conf_activation)
 
