@@ -81,7 +81,7 @@ class CameraHead(nn.Module):
             num_iterations (int, optional): Number of iterative refinement steps. Defaults to 4.
 
         Returns:
-            list: A list of predicted camera encodings (post-activation) from each iteration.
+            torch.Tensor: Activated camera encoding from the last iteration.
         """
         # Use tokens from the last block for camera prediction.
         tokens = aggregated_tokens_list[-1]
@@ -90,8 +90,8 @@ class CameraHead(nn.Module):
         pose_tokens = tokens[:, :, 0]
         pose_tokens = self.token_norm(pose_tokens)
 
-        pred_pose_enc_list = self.trunk_fn(pose_tokens, num_iterations)
-        return pred_pose_enc_list
+        pred_pose_enc = self.trunk_fn(pose_tokens, num_iterations)
+        return pred_pose_enc
 
     def trunk_fn(self, pose_tokens: torch.Tensor, num_iterations: int) -> list:
         """
@@ -102,12 +102,12 @@ class CameraHead(nn.Module):
             num_iterations (int): Number of refinement iterations.
 
         Returns:
-            list: List of activated camera encodings from each iteration.
+            torch.Tensor: Activated camera encoding from the last iteration.
         """
         B, S, C = pose_tokens.shape
         pred_pose_enc = None
-        pred_pose_enc_list = []
 
+        assert num_iterations > 0
         for _ in range(num_iterations):
             # Use a learned empty pose for the first iteration.
             if pred_pose_enc is None:
@@ -137,9 +137,7 @@ class CameraHead(nn.Module):
                     pred_pose_enc, trans_act=self.trans_act, quat_act=self.quat_act, fl_act=self.fl_act
                 )
 
-            pred_pose_enc_list.append(activated_pose)
-
-        return pred_pose_enc_list
+        return activated_pose
 
 
 def modulate(x: torch.Tensor, shift: torch.Tensor, scale: torch.Tensor) -> torch.Tensor:
