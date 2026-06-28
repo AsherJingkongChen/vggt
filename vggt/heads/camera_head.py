@@ -71,7 +71,7 @@ class CameraHead(nn.Module):
         self.adaln_norm = nn.LayerNorm(dim_in, elementwise_affine=False, eps=1e-6)
         self.pose_branch = Mlp(in_features=dim_in, hidden_features=dim_in // 2, out_features=self.target_dim, drop=0)
 
-    def forward(self, aggregated_tokens_list: list, num_iterations: int = 4) -> list:
+    def forward(self, aggregated_tokens_list: list, H: int, W: int, *, num_iterations: int = 4) -> list:
         """
         Forward pass to predict camera parameters.
 

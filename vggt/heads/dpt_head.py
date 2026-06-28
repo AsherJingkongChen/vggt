@@ -119,6 +119,7 @@ class DPTHead(nn.Module):
         H: int,
         W: int,
         patch_start_idx: int,
+        *,
         frames_chunk_size: int = 8,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
