@@ -120,7 +120,7 @@ class DPTHead(nn.Module):
         W: int,
         patch_start_idx: int,
         *,
-        frames_chunk_size: int = 8,
+        frames_chunk_size: int = 1,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Forward pass through the DPT head, supports processing by chunking frames.
@@ -131,7 +131,7 @@ class DPTHead(nn.Module):
             patch_start_idx (int): Starting index for patch tokens in the token sequence.
                 Used to separate patch tokens from other tokens (e.g., camera or register tokens).
             frames_chunk_size (int, optional): Number of frames to process in each chunk.
-                If None or larger than S, all frames are processed at once. Default: 8.
+                If None or larger than S, all frames are processed at once. Default: 1.
 
         Returns:
             Tensor or Tuple[Tensor, Tensor]:
@@ -147,31 +147,35 @@ class DPTHead(nn.Module):
         # Otherwise, process frames in chunks to manage memory usage
         assert frames_chunk_size > 0
 
-        # Process frames in batches
-        all_preds = []
-        all_conf = []
+        # Process frames in batches into preallocated outputs to avoid the
+        # concatenation copy, which would double the output memory footprint
+        all_preds = None
+        all_conf = None
 
         for frames_start_idx in range(0, S, frames_chunk_size):
             frames_end_idx = min(frames_start_idx + frames_chunk_size, S)
 
             # Process batch of frames
             if self.feature_only:
-                chunk_output = self._forward_impl(
+                chunk_preds = self._forward_impl(
                     aggregated_tokens_list, H, W, patch_start_idx, frames_start_idx, frames_end_idx
                 )
-                all_preds.append(chunk_output)
             else:
                 chunk_preds, chunk_conf = self._forward_impl(
                     aggregated_tokens_list, H, W, patch_start_idx, frames_start_idx, frames_end_idx
                 )
-                all_preds.append(chunk_preds)
-                all_conf.append(chunk_conf)
+                if all_conf is None:
+                    all_conf = chunk_conf.new_empty(chunk_conf.shape[0], S, *chunk_conf.shape[2:])
+                all_conf[:, frames_start_idx:frames_end_idx] = chunk_conf
 
-        # Concatenate results along the sequence dimension
+            if all_preds is None:
+                all_preds = chunk_preds.new_empty(chunk_preds.shape[0], S, *chunk_preds.shape[2:])
+            all_preds[:, frames_start_idx:frames_end_idx] = chunk_preds
+
         if self.feature_only:
-            return torch.cat(all_preds, dim=1)
+            return all_preds
         else:
-            return torch.cat(all_preds, dim=1), torch.cat(all_conf, dim=1)
+            return all_preds, all_conf
 
     def _forward_impl(
         self,
